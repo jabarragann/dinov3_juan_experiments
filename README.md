@@ -1,1 +1,1 @@
-# Dino V3 - Juan experiments
+# DinoV3 - Juan experiments
