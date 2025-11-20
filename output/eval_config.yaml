@@ -1,0 +1,61 @@
+model: null
+bs: 2
+n_gpus: 8
+num_workers: 6
+model_dtype: FLOAT32
+seed: 100
+datasets:
+  root: ???
+  train: ''
+  val: ''
+metric_to_save: mIoU
+decoder_head:
+  type: m2f
+  backbone_out_layers: LAST
+  use_batchnorm: true
+  use_cls_token: false
+  use_backbone_norm: true
+  num_classes: 150
+  hidden_dim: 2048
+  dropout: 0.1
+scheduler:
+  type: WarmupOneCycleLR
+  total_iter: 40000
+  constructor_kwargs: {}
+optimizer:
+  lr: 0.001
+  beta1: 0.9
+  beta2: 0.999
+  weight_decay: 0.01
+  gradient_clip: 35.0
+transforms:
+  train:
+    img_size: null
+    random_img_size_ratio_range: null
+    crop_size: null
+    flip_prob: 0.0
+  eval:
+    img_size: null
+    tta_ratios:
+    - 1.0
+  mean:
+  - 123.675
+  - 116.28
+  - 103.53
+  std:
+  - 58.395
+  - 57.120000000000005
+  - 57.375
+train:
+  diceloss_weight: 0.0
+  celoss_weight: 1.0
+eval:
+  compute_metric_per_image: false
+  reduce_zero_label: true
+  mode: slide
+  crop_size: 512
+  stride: 341
+  eval_interval: 40000
+  use_tta: false
+output_dir: .
+load_from: null
