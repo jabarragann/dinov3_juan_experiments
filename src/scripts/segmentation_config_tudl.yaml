@@ -27,9 +27,9 @@ optimizer:
   weight_decay: 1e-3
   gradient_clip: 'inf'
 datasets:
-  root: ""  # Path to the ADE20K dataset
-  train: "ADE20K:split=TRAIN"
-  val: "ADE20K:split=VAL"
+  root: "/home/juan95/JuanData/6d_pose_datasets/tudl/"  # Path to the TUDL BOP dataset
+  train: "tudl_bop:split=TEST:scene_id=1"
+  val: "tudl_bop:split=TEST:scene_id=1"
 train:
   diceloss_weight: 0.0
   celoss_weight: 1.0

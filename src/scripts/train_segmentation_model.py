@@ -16,6 +16,8 @@ from dinov3.run.init import job_context
 
 from dinov3.hub.backbones import dinov3_vitl16, dinov3_vitb16
 
+logging.basicConfig(level=logging.INFO)
+
 logger = logging.getLogger("dinov3")
 
 RESULTS_FILENAME = "results-semantic-segmentation.csv"
@@ -80,6 +82,8 @@ def benchmark_launcher(eval_args: dict[str, object]) -> dict[str, Any]:
 
     segmentation_file_path = os.path.join(output_dir, "segmentation_config.yaml")
     OmegaConf.save(config=dataclass_config, f=segmentation_file_path)
+
+    logger.info("Running segmentation with DINOv3...")
     results_dict = run_segmentation_with_dinov3(
         backbone=backbone, config=dataclass_config
     )
