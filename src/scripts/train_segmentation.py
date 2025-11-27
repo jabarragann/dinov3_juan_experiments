@@ -16,6 +16,7 @@ from dinov3.eval.segmentation.models import build_segmentation_decoder
 from dinov3.eval.segmentation.schedulers import build_scheduler
 from dinov3.eval.segmentation.transforms import make_segmentation_eval_transforms, make_segmentation_train_transforms
 from dinov3.logging import MetricLogger, SmoothedValue
+from scripts.test_dice_loss import make_bop_segmentation_transforms
 
 logger = logging.getLogger("dinov3")
 
@@ -164,21 +165,24 @@ def train_segmentation(
     logger.info(f"Number of trainable parameters: {sum(p.numel() for p in model_parameters)}")
 
     # 2- create data transforms + dataloaders
-    train_transforms = make_segmentation_train_transforms(
-        img_size=config.transforms.train.img_size,
-        random_img_size_ratio_range=config.transforms.train.random_img_size_ratio_range,
-        crop_size=config.transforms.train.crop_size,
-        flip_prob=config.transforms.train.flip_prob,
-        reduce_zero_label=config.eval.reduce_zero_label,
-        mean=config.transforms.mean,
-        std=config.transforms.std,
-    )
-    val_transforms = make_segmentation_eval_transforms(
-        img_size=config.transforms.eval.img_size,
-        inference_mode=config.eval.mode,
-        mean=config.transforms.mean,
-        std=config.transforms.std,
-    )
+    train_transforms = make_bop_segmentation_transforms(img_size=config.transforms.train.img_size)
+    val_transforms = make_bop_segmentation_transforms(img_size=config.transforms.eval.img_size)
+
+    # train_transforms = make_segmentation_train_transforms(
+    #     img_size=config.transforms.train.img_size,
+    #     random_img_size_ratio_range=config.transforms.train.random_img_size_ratio_range,
+    #     crop_size=config.transforms.train.crop_size,
+    #     flip_prob=config.transforms.train.flip_prob,
+    #     reduce_zero_label=config.eval.reduce_zero_label,
+    #     mean=config.transforms.mean,
+    #     std=config.transforms.std,
+    # )
+    # val_transforms = make_segmentation_eval_transforms(
+    #     img_size=config.transforms.eval.img_size,
+    #     inference_mode=config.eval.mode,
+    #     mean=config.transforms.mean,
+    #     std=config.transforms.std,
+    # )
 
     train_dataset = DatasetWithEnumeratedTargets(
         make_dataset(

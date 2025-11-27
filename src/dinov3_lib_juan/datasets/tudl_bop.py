@@ -1,7 +1,7 @@
 import os
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, List, Optional, Tuple, Union
+from typing import Any, Callable, List, Optional, Tuple, Type, Union
 
 from PIL import Image
 
@@ -40,7 +40,7 @@ def _load_segmentation(root: str, split_file_names: List[str]):
 
 
 class tudl_bop(ExtendedVisionDataset):
-    Split = Union[_Split]
+    Split = _Split
     Labels = Union[Image.Image]
 
     def __init__(
@@ -51,8 +51,8 @@ class tudl_bop(ExtendedVisionDataset):
         transforms: Optional[Callable] = None,
         transform: Optional[Callable] = None,
         target_transform: Optional[Callable] = None,
-        image_decoder: Decoder = ImageDataDecoder,
-        target_decoder: Decoder = DenseTargetDecoder,
+        image_decoder: Type[Decoder]= ImageDataDecoder,
+        target_decoder: Type[Decoder] = DenseTargetDecoder,
     ) -> None:
         super().__init__(
             root=root,
@@ -73,18 +73,51 @@ class tudl_bop(ExtendedVisionDataset):
     def load_file_paths(
         self, root: Path, split: _Split, scene_id: Optional[int] = None
     ) -> Tuple[List[str], List[str]]:
-        image_dir = root / split.dirname / f"{scene_id:06d}" / "rgb"
-        target_dir = root / split.dirname / f"{scene_id:06d}" / "mask_visib"
 
-        assert image_dir.exists(), f"Image directory does not exist: {image_dir}"
-        assert target_dir.exists(), f"Target directory does not exist: {target_dir}"
+        if split == _Split.TEST:
+            image_dir = root / split.dirname / f"{scene_id:06d}" / "rgb"
+            target_dir = root / split.dirname / f"{scene_id:06d}" / "mask_visib"
 
-        image_paths = sorted(
-            [str(p.relative_to(root)) for p in image_dir.glob("*.png")]
-        )
-        target_paths = sorted(
-            [str(p.relative_to(root)) for p in target_dir.glob("*.png")]
-        )
+            assert image_dir.exists(), f"Image directory does not exist: {image_dir}"
+            assert target_dir.exists(), f"Target directory does not exist: {target_dir}"
+            
+            image_paths = sorted(
+                [str(p.relative_to(root)) for p in image_dir.glob("*.png")]
+            )
+            target_paths = sorted(
+                [str(p.relative_to(root)) for p in target_dir.glob("*.png")]
+            )
+
+        elif split == _Split.TRAIN or split == _Split.VAL:
+            dirname = _Split.TRAIN.dirname
+            image_dir = root / dirname / f"{scene_id:06d}" / "rgb"
+            target_dir = root / dirname / f"{scene_id:06d}" / "mask_visib"
+
+            image_paths = sorted(
+                [str(p.relative_to(root)) for p in image_dir.glob("*.png")]
+            )
+            target_paths = sorted(
+                [str(p.relative_to(root)) for p in target_dir.glob("*.png")]
+            )
+            train_images_paths = []
+            train_target_paths = []
+            val_images_paths = []
+            val_target_paths = []
+
+            for idx in range(len(image_paths)):
+                if idx % 5 == 0:
+                    val_images_paths.append(image_paths[idx])
+                    val_target_paths.append(target_paths[idx])
+                else:
+                    train_images_paths.append(image_paths[idx])
+                    train_target_paths.append(target_paths[idx])
+            
+            if split == _Split.TRAIN:
+                image_paths = train_images_paths
+                target_paths = train_target_paths
+            else:
+                image_paths = val_images_paths
+                target_paths = val_target_paths
 
         return image_paths, target_paths
 
@@ -107,6 +140,7 @@ class tudl_bop(ExtendedVisionDataset):
 
 
 def test_dataset_visualization(
+    output_file: Path,
     dataset: tudl_bop,
     batch_size=1,
     num_workers=3,
@@ -169,7 +203,7 @@ def test_dataset_visualization(
         ax[2].axis("off")
 
         plt.tight_layout()
-        plt.savefig("./output/debug_tudl.jpeg")
+        plt.savefig(output_file)
         # plt.show()
 
         break  # Only first batch
@@ -181,8 +215,9 @@ if __name__ == "__main__":
     print("testing tudl_bop dataset...")
     image_transform = v2.Compose([v2.PILToTensor()]) # Torchvision interface changed now we can call transform(image, mask)
 
+    split = tudl_bop.Split.TEST
     dataset = tudl_bop(
-        split=tudl_bop.Split.TEST,
+        split=split,
         root="/home/juan95/JuanData/6d_pose_datasets/tudl/",
         scene_id=1,
         # transform=image_transform,
@@ -190,8 +225,12 @@ if __name__ == "__main__":
         transforms=image_transform
     )
 
+    print(dataset.image_paths[:5])
+    print(dataset.image_paths[10:15])
     print(f"Dataset length: {len(dataset)}")
-    image, target = dataset[4000]
+    image, target = dataset[2000]
     print(f"Image size: {image.size()}, Target size: {target.size()}")
     print(target.max(), target.min())
-    test_dataset_visualization(dataset)
+
+    output_file = Path(f"./output/debug_tudl_{split.name}.jpeg")
+    test_dataset_visualization(output_file, dataset)
