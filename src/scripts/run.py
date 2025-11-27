@@ -8,13 +8,12 @@ from typing import Any
 
 from dinov3.eval.segmentation.config import SegmentationConfig
 from dinov3.eval.segmentation.eval import test_segmentation
-from dinov3.eval.segmentation.train import train_segmentation
 from dinov3.eval.helpers import args_dict_to_dataclass, cli_parser, write_results
 from dinov3.eval.setup import load_model_and_context
 from dinov3.run.init import job_context
-
-
 from dinov3.hub.backbones import dinov3_vitl16, dinov3_vitb16
+
+from scripts.train_segmentation import train_segmentation
 
 logging.basicConfig(level=logging.INFO)
 

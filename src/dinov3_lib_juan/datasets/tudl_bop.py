@@ -193,4 +193,5 @@ if __name__ == "__main__":
     print(f"Dataset length: {len(dataset)}")
     image, target = dataset[4000]
     print(f"Image size: {image.size()}, Target size: {target.size()}")
+    print(target.max(), target.min())
     test_dataset_visualization(dataset)
