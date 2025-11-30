@@ -118,6 +118,9 @@ class tudl_bop(ExtendedVisionDataset):
             else:
                 image_paths = val_images_paths
                 target_paths = val_target_paths
+                # For debug
+                # image_paths = val_images_paths[:20]
+                # target_paths = val_target_paths[:20]
 
         return image_paths, target_paths
 
@@ -228,7 +231,7 @@ if __name__ == "__main__":
     print(dataset.image_paths[:5])
     print(dataset.image_paths[10:15])
     print(f"Dataset length: {len(dataset)}")
-    image, target = dataset[2000]
+    image, target = dataset[200]
     print(f"Image size: {image.size()}, Target size: {target.size()}")
     print(target.max(), target.min())
 

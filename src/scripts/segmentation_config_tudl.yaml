@@ -10,7 +10,7 @@ backbone_custom:
   weights_path: "weights/dinov3_vit-b16-ABCDEFGH.pth"
 
 scheduler:
-  total_iter: 40000
+  total_iter: 5000
   type: 'WarmupOneCycleLR'
   constructor_kwargs:
     warmup_iters: 1500
@@ -28,8 +28,8 @@ optimizer:
   gradient_clip: 'inf'
 datasets:
   root: "/home/juan95/JuanData/6d_pose_datasets/tudl/"  # Path to the TUDL BOP dataset
-  train: "tudl_bop:split=TEST:scene_id=1"
-  val: "tudl_bop:split=TEST:scene_id=1"
+  train: "tudl_bop:split=TRAIN:scene_id=1"
+  val: "tudl_bop:split=VAL:scene_id=1"
 train:
   diceloss_weight: 0.0
   celoss_weight: 1.0
@@ -39,7 +39,7 @@ decoder_head:
   use_cls_token: False
   use_batchnorm: True
   use_backbone_norm: True
-  num_classes: 150
+  num_classes: 2 
 transforms:
   train:
     img_size: 512
@@ -50,9 +50,9 @@ transforms:
     img_size: 512
 eval:
   compute_metric_per_image: False
-  reduce_zero_label: True
-  mode: "slide"
+  reduce_zero_label: True # Not needed for TUDL BOP
+  mode: "whole" # Not needed for TUDL BOP
   crop_size: 512
   stride: 341
-  eval_interval: 5000
+  eval_interval: 1000 
   use_tta: False

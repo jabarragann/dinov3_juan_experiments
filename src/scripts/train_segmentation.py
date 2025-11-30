@@ -5,16 +5,21 @@ import os
 import random
 
 import torch
-import torch.distributed as dist
+# import torch.distributed as dist
 
+# from dinov3.eval.segmentation.inference import make_inference
+from dinov3.eval.segmentation.metrics import (
+    # calculate_intersect_and_union,
+    calculate_segmentation_metrics,
+)
 from dinov3.data import DatasetWithEnumeratedTargets, SamplerType, make_data_loader, make_dataset
 import dinov3.distributed as distributed
-from dinov3.eval.segmentation.eval import evaluate_segmentation_model
+# from dinov3.eval.segmentation.eval import evaluate_segmentation_model
 from dinov3.eval.segmentation.loss import MultiSegmentationLoss
 from dinov3.eval.segmentation.metrics import SEGMENTATION_METRICS
 from dinov3.eval.segmentation.models import build_segmentation_decoder
 from dinov3.eval.segmentation.schedulers import build_scheduler
-from dinov3.eval.segmentation.transforms import make_segmentation_eval_transforms, make_segmentation_train_transforms
+# from dinov3.eval.segmentation.transforms import make_segmentation_eval_transforms, make_segmentation_train_transforms
 from dinov3.logging import MetricLogger, SmoothedValue
 from scripts.test_dice_loss import make_bop_segmentation_transforms
 
@@ -86,7 +91,7 @@ def validate(
     logger.info(f"Step {global_step}: {new_metric_values_dict}")
     # `segmentation_model` is a module list of [backbone, decoder]
     # Only put the head in train mode
-    segmentation_model.module.segmentation_model[1].train()
+    segmentation_model.segmentation_model[1].train()
     is_better = False
     if new_metric_values_dict[metric_to_save] > current_best_metric_to_save_value:
         is_better = True
@@ -138,6 +143,86 @@ def train_step(
 
     return loss
 
+def calculate_intersect_and_union(pred_label, label, num_classes):
+    """Calculate intersection and Union.
+    Args:
+        pred_label (torch.Tensor): Prediction segmentation map
+        label (torch.Tensor): Ground truth segmentation map
+        num_classes (int): Number of categories.
+    """
+    pred_label = pred_label.float()  # Enables float tensor operations
+
+    intersect = pred_label[pred_label == label]
+    area_intersect = torch.histc(intersect.float(), bins=(num_classes), min=0, max=num_classes - 1)
+    area_pred_label = torch.histc(pred_label.float(), bins=(num_classes), min=0, max=num_classes - 1)
+    area_label = torch.histc(label.float(), bins=(num_classes), min=0, max=num_classes - 1)
+    area_union = area_pred_label + area_label - area_intersect
+
+    return torch.stack([area_intersect, area_union, area_pred_label, area_label])
+
+def evaluate_segmentation_model(
+    segmentation_model: torch.nn.Module,
+    test_dataloader,
+    device,
+    eval_res,
+    eval_stride,
+    decoder_head_type,
+    num_classes,
+    autocast_dtype,
+):
+    segmentation_model = segmentation_model.to(device)
+    segmentation_model.eval()
+    all_metric_values = []
+    metric_logger = MetricLogger(delimiter="  ")
+
+    for batch_img, (_, gt) in metric_logger.log_every(test_dataloader, 200, header="Validation: "):
+        assert batch_img.shape[0] == 1, "Only batch size 1 is supported for evaluation"
+
+        ## Old from ADE20k
+        # batch_img = [img.to(device).to(dtype=autocast_dtype) for img in batch_img]
+        # gt = gt.to(device)[0]
+        # aggregated_preds = torch.zeros(1, num_classes, gt.shape[-2], gt.shape[-1])
+        # for img_idx, img in enumerate(batch_img):
+        #     aggregated_preds += make_inference(
+        #         img,
+        #         segmentation_model,
+        #         inference_mode="whole",
+        #         decoder_head_type=decoder_head_type,
+        #         rescale_to=gt.shape[-2:],
+        #         n_output_channels=num_classes,
+        #         crop_size=(eval_res, eval_res),
+        #         stride=(eval_stride, eval_stride),
+        #         apply_horizontal_flip=(img_idx and img_idx >= len(batch_img) / 2),
+        #         output_activation=partial(torch.nn.functional.softmax, dim=1),
+        #     )
+        # aggregated_preds = (aggregated_preds / len(batch_img)).argmax(dim=1, keepdim=True).to(device)
+
+        # New from TUDL BOP
+        batch = batch_img.to(device)
+        gt = gt.to(device)[0]
+        pred = segmentation_model.predict(batch, rescale_to=gt.shape[-2:])
+        pred_label = pred.argmax(dim=1, keepdim=True).to(device)
+
+        intersect_and_union = calculate_intersect_and_union(
+            pred_label[0],
+            gt,
+            num_classes=num_classes,
+        )
+        all_metric_values.append(intersect_and_union)
+
+        # del img, gt, aggregated_preds, intersect_and_union
+        del gt, intersect_and_union
+
+    all_metric_values = torch.stack(all_metric_values)
+    if distributed.is_enabled():
+        all_metric_values = torch.cat(distributed.gather_all_tensors((all_metric_values)))
+    final_metrics = calculate_segmentation_metrics(
+        all_metric_values,
+        metrics=["mIoU", "dice", "fscore"],
+    )
+    final_metrics = {k: round(v.cpu().item() * 100, 2) for k, v in final_metrics.items()}
+    logger.info(final_metrics)
+    return final_metrics
 
 def train_segmentation(
     backbone,
@@ -268,6 +353,7 @@ def train_segmentation(
     ):
         if global_step >= total_iter:
             break
+
         loss = train_step(
             segmentation_model,
             batch,
@@ -282,8 +368,9 @@ def train_segmentation(
         )
         global_step += 1
         metric_logger.update(loss=loss)
+
         if global_step % config.eval.eval_interval == 0:
-            dist.barrier()
+            # dist.barrier()
             is_better, best_metric_values_dict = validate(
                 segmentation_model,
                 val_dataloader,
@@ -301,33 +388,35 @@ def train_segmentation(
                 logger.info(f"New best metrics at Step {global_step}: {best_metric_values_dict}")
                 global_best_metric_values = best_metric_values_dict
 
-        # one last validation only if the number of total iterations is NOT divisible by eval interval:
-        if total_iter % config.eval.eval_interval:
-            is_better, best_metric_values_dict = validate(
-                segmentation_model,
-                val_dataloader,
-                local_device,
-                config.model_dtype.autocast_dtype,
-                config.eval.crop_size,
-                config.eval.stride,
-                config.decoder_head.type,
-                config.decoder_head.num_classes,
-                global_step,
-                config.metric_to_save,
-                global_best_metric_values[config.metric_to_save],
-            )
-            if is_better:
-                logger.info(f"New best metrics at Step {global_step}: {best_metric_values_dict}")
-                global_best_metric_values = best_metric_values_dict
+    # one last validation only if the number of total iterations is NOT divisible by eval interval:
+    if total_iter % config.eval.eval_interval:
+        is_better, best_metric_values_dict = validate(
+            segmentation_model,
+            val_dataloader,
+            local_device,
+            config.model_dtype.autocast_dtype,
+            config.eval.crop_size,
+            config.eval.stride,
+            config.decoder_head.type,
+            config.decoder_head.num_classes,
+            global_step,
+            config.metric_to_save,
+            global_best_metric_values[config.metric_to_save],
+        )
+        if is_better:
+            logger.info(f"New best metrics at Step {global_step}: {best_metric_values_dict}")
+            global_best_metric_values = best_metric_values_dict
+
     logger.info("Training is done!")
     # segmentation_model is a module list of [backbone, decoder]
     # Only save the decoder head
     torch.save(
         {
-            "model": {k: v for k, v in segmentation_model.module.state_dict().items() if "segmentation_model.1" in k},
+            "model": {k: v for k, v in segmentation_model.state_dict().items() if "segmentation_model.1" in k},
             "optimizer": optimizer.state_dict(),
         },
         os.path.join(config.output_dir, "model_final.pth"),
     )
     logger.info(f"Final best metrics: {global_best_metric_values}")
+
     return global_best_metric_values
